@@ -86,13 +86,11 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
             left = stack.pop()
             temp = new_temp()
 
-            # A = left
             if is_literal(left):
                 code.append(f"    MOV A,{left}")
             else:
                 code.append(f"    MOV A,(v_{left})")
 
-            # A = A ± right
             if token == "+":
                 if is_literal(right):
                     code.append(f"    ADD A,{right}")
@@ -104,7 +102,6 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
                 else:
                     code.append(f"    SUB A,(v_{right})")
 
-            # v_tN = A   (siempre en memoria)
             code.append(f"    MOV (v_{temp}),A")
 
             stack.append(temp)
@@ -172,3 +169,36 @@ def compile_line(line: str, var_values=None): #compila una linea
             mem_accesses += 1
 
     return all_lines, total_lines, mem_accesses
+
+def main():
+    expr = input("ingresa expresión \n> ")
+
+    print("\n valores iniciales variables:")
+    var_values = {}
+    for v in VARIABLES:
+        s = input(f"{v} = ")
+        s = s.strip()
+        if s == "":
+            var_values[v] = 0
+        else:
+            var_values[v] = int(s)
+
+    asm_lines, total_lines, mem_accesses = compile_line(expr, var_values)
+
+    print("\n;assebly: ")
+    for line in asm_lines:
+        print(line)
+    print(f"\n; lineas totales: {total_lines}")
+    print(f";memoria : {mem_accesses}")
+
+    with open("program.asm", "w") as f:
+        for line in asm_lines:
+            f.write(line + "\n")
+        f.write(f"\n; Líneas totales: {total_lines}\n")
+        f.write(f"; Accesos a memoria (aprox): {mem_accesses}\n")
+
+    print("\nguardado en program.asm")
+
+
+if __name__ == "__main__":
+    main()
