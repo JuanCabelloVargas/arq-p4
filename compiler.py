@@ -123,3 +123,52 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
     code.append("    MOV (v_result),A")
 
     return code, temps
+
+def compile_line(line: str, var_values=None): #compila una linea
+    if var_values is None:
+        var_values = {}
+
+    tokens = tokenize(line)
+    if "=" not in tokens:
+        raise ValueError("La expresión debe contener '='")
+
+    eq_index = tokens.index("=")
+    lhs = tokens[:eq_index]
+    rhs = tokens[eq_index + 1:]
+
+    if len(lhs) != 1 or lhs[0] != "result":
+        raise ValueError("Solo se soporta 'result' en el lado izquierdo")
+
+    rpn = to_rpn(rhs)
+
+    code, temps = generate_asm_from_rpn(rpn)
+
+    data_lines = []
+    data_lines.append("DATA:")
+    for v in VARIABLES:
+        value = var_values.get(v, 0)
+        name = f"v_{v}"
+        data_lines.append(f"{name:8} {value}")
+    for t in temps:
+        name = f"v_{t}"
+        data_lines.append(f"{name:8} 0")
+    data_lines.append(f"{'v_result':8} 0")
+    data_lines.append(f"{'v_error':8} 0")
+    data_lines.append("")
+
+    code_lines = ["CODE:"]
+    code_lines.extend(code)
+
+    all_lines = data_lines + code_lines
+    total_lines = sum(1 for l in all_lines if l.strip())
+
+    mem_accesses = 0
+    for instr in code:
+        s = instr.strip()
+        if not s:
+            continue
+        op = s.split()[0]
+        if op in ("MOV", "ADD", "SUB") and "(" in s and ")" in s:
+            mem_accesses += 1
+
+    return all_lines, total_lines, mem_accesses
