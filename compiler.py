@@ -29,10 +29,7 @@ def tokenize(line: str):
 
 
 
-def to_rpn(expr_tokens):
-    """
-    Pasa de notación infija a postfija (RPN) usando Shunting Yard
-    """
+def to_rpn(expr_tokens): #Shuting yard 
     output = []
     op_stack = []
     precedence = {"+": 1, "-": 1}
@@ -52,7 +49,6 @@ def to_rpn(expr_tokens):
                 raise ValueError("Paréntesis desbalanceados")
             op_stack.pop()  # saca el "("
         else:
-            # cualquier cosa que no sea operador/paréntesis se toma como operando
             output.append(t)
 
     while op_stack:
@@ -62,3 +58,11 @@ def to_rpn(expr_tokens):
         output.append(top)
 
     return output
+
+
+def is_literal(token: str) -> bool: #check si es literal numerico o no, esto para data mas tarde
+    if not token:
+        return False
+    if token[0] in "+-":
+        return token[1:].isdigit()
+    return token.isdigit()
