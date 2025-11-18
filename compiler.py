@@ -118,6 +118,50 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
 
                 code.append(f"    MOV (v_{temp}),A")
 
+            elif token == "*":
+                temp_result = new_temp()
+                temp_left = new_temp()
+                temp_right = new_temp()
+
+                code.append(f"    MOV A,0")
+                code.append(f"    MOV (v_{temp_result}),A")
+
+                if is_literal(left):
+                    code.append(f"    MOV A,{left}")
+                else:
+                    code.append(f"    MOV A,(v_{left})")
+                code.append(f"    MOV (v_{temp_left}),A")
+
+                if is_literal(right):
+                    code.append(f"    MOV A,{right}")
+                else:
+                    code.append(f"    MOV A,(v_{right})")
+                code.append(f"    MOV (v_{temp_right}),A")
+
+                label_mul_loop = new_label()
+                label_mul_end = new_label()
+
+                code.append(f"{label_mul_loop}:")
+                code.append(f"    MOV A,(v_{temp_right})")
+                code.append(f"    CMP A,0")
+                code.append(f"    JEQ {label_mul_end}")
+
+                code.append(f"    MOV A,(v_{temp_result})")
+                code.append(f"    ADD A,(v_{temp_left})")
+                code.append(f"    MOV (v_{temp_result}),A")
+
+                code.append(f"    MOV A,(v_{temp_right})")
+                code.append(f"    SUB A,1")
+                code.append(f"    MOV (v_{temp_right}),A")
+
+                code.append(f"    JMP {label_mul_loop}")
+
+                # Fin del loop
+                code.append(f"{label_mul_end}:")
+                code.append(f"    MOV A,(v_{temp_result})")
+                code.append(f"    MOV (v_{temp}),A")
+
+
             elif token == "/":
                 
                 temp = new_temp()
