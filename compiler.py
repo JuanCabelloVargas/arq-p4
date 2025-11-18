@@ -4,7 +4,7 @@ VARIABLES = ["a", "b", "c", "d", "e", "f", "g"]
 def tokenize(line: str):
     tokens = []
     current = ""
-    specials = set("+-=()")
+    specials = set("+-*/%=()")
 
     for ch in line:
         if ch.isspace():
@@ -29,7 +29,7 @@ def tokenize(line: str):
 def to_rpn(expr_tokens):
     output = []
     op_stack = []
-    precedence = {"+": 1, "-": 1}
+    precedence = {"+": 1, "-": 1, "*": 2, "/": 2, "%": 2}
 
     for t in expr_tokens:
         if t in precedence:
@@ -70,6 +70,7 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
     temps = []
     stack = []
     temp_id = 0
+    label_id = 0
 
     def new_temp():
         nonlocal temp_id
@@ -78,31 +79,112 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
         temps.append(name)
         return name
 
+    def new_label():
+        nonlocal label_id
+        label_id += 1
+        return f"L{label_id}"
+
     for token in rpn:
-        if token in {"+", "-"}:
+        if token in {"+", "-", "*", "/", "%"}:
             if len(stack) < 2:
                 raise ValueError("faltan operandos")
             right = stack.pop()
             left = stack.pop()
             temp = new_temp()
 
-            if is_literal(left):
-                code.append(f"    MOV A,{left}")
-            else:
-                code.append(f"    MOV A,(v_{left})")
-
             if token == "+":
+                if is_literal(left):
+                    code.append(f"    MOV A,{left}")
+                else:
+                    code.append(f"    MOV A,(v_{left})")
+
                 if is_literal(right):
                     code.append(f"    ADD A,{right}")
                 else:
                     code.append(f"    ADD A,(v_{right})")
-            else:
+
+                code.append(f"    MOV (v_{temp}),A")
+
+            elif token == "-":
+                if is_literal(left):
+                    code.append(f"    MOV A,{left}")
+                else:
+                    code.append(f"    MOV A,(v_{left})")
+
                 if is_literal(right):
                     code.append(f"    SUB A,{right}")
                 else:
                     code.append(f"    SUB A,(v_{right})")
 
-            code.append(f"    MOV (v_{temp}),A")
+                code.append(f"    MOV (v_{temp}),A")
+
+            elif token == "/":
+                
+                temp = new_temp()
+                divisor_temp = new_temp()
+                dividend_temp = new_temp()
+                quotient_temp = new_temp()
+                
+                if is_literal(right):
+                    code.append(f"    MOV A,{right}")
+                else:
+                    code.append(f"    MOV A,(v_{right})")
+                code.append(f"    MOV (v_{divisor_temp}),A")
+                
+                label_div_ok = new_label()
+                label_div_end = new_label()
+                code.append(f"    CMP A,0")
+                code.append(f"    JEQ {label_div_end}")  # Si divisor == 0, marcar error
+                code.append(f"    JMP {label_div_ok}")   # Si no, continuar
+                
+                # Manejar división por cero
+                code.append(f"{label_div_end}:")
+                code.append(f"    MOV A,1")
+                code.append(f"    MOV (v_error),A")
+                code.append(f"    MOV A,0")
+                code.append(f"    MOV (v_result),A")
+                code.append(f"    JMP end_program")
+                
+                # Continuar con división normal
+                code.append(f"{label_div_ok}:")
+                
+                if is_literal(left):
+                    code.append(f"    MOV A,{left}")
+                else:
+                    code.append(f"    MOV A,(v_{left})")
+                code.append(f"    MOV (v_{dividend_temp}),A")
+                
+                code.append(f"    MOV A,0")
+                code.append(f"    MOV (v_{quotient_temp}),A")
+                
+                label_div_loop = new_label()
+                label_div_continue = new_label()
+                label_div_finish = new_label()
+                
+                code.append(f"{label_div_loop}:")
+                code.append(f"    MOV A,(v_{dividend_temp})")
+                code.append(f"    CMP A,(v_{divisor_temp})")
+                code.append(f"    JGE {label_div_continue}")
+                code.append(f"    JMP {label_div_finish}")
+                
+                code.append(f"{label_div_continue}:")
+                code.append(f"    MOV A,(v_{dividend_temp})")
+                code.append(f"    SUB A,(v_{divisor_temp})")
+                code.append(f"    MOV (v_{dividend_temp}),A")
+                
+                code.append(f"    MOV A,(v_{quotient_temp})")
+                code.append(f"    ADD A,1")
+                code.append(f"    MOV (v_{quotient_temp}),A")
+                
+                code.append(f"    JMP {label_div_loop}")
+                
+                code.append(f"{label_div_finish}:")
+                code.append(f"    MOV A,(v_{quotient_temp})")
+                code.append(f"    MOV (v_{temp}),A")
+
+            elif token == "%":
+                code.append(f"    ; Módulo {left} % {right}")
+                code.append(f"    MOV (v_{temp}),A")
 
             stack.append(temp)
         else:
@@ -118,6 +200,7 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
     else:
         code.append(f"    MOV A,(v_{final})")
     code.append("    MOV (v_result),A")
+    code.append("end_program:")
 
     return code, temps
 
