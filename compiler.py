@@ -1,11 +1,9 @@
 VARIABLES = ["a", "b", "c", "d", "e", "f", "g"]
 
-
 def tokenize(line: str):
     tokens = []
     current = ""
-    specials = set("+-*/%=()")
-
+    specials = set("+-*/%=(),")
     for ch in line:
         if ch.isspace():
             if current:
@@ -18,33 +16,43 @@ def tokenize(line: str):
             tokens.append(ch)
         else:
             current += ch
-
     if current:
         tokens.append(current)
-
     return tokens
-
-
 
 def to_rpn(expr_tokens):
     output = []
     op_stack = []
     precedence = {"+": 1, "-": 1, "*": 2, "/": 2, "%": 2}
+    functions = {"max", "min", "abs"}
+
+    print(f"tokens de entrada: {expr_tokens}")
 
     for t in expr_tokens:
-        if t in precedence:
-            while op_stack and op_stack[-1] in precedence \
-                    and precedence[op_stack[-1]] >= precedence[t]:
+        if t in functions:
+            op_stack.append(t)
+
+        elif t == ",":
+            while op_stack and op_stack[-1] != "(":
+                output.append(op_stack.pop())
+
+        elif t in precedence:
+            while op_stack and op_stack[-1] in precedence and precedence[op_stack[-1]] >= precedence[t]:
                 output.append(op_stack.pop())
             op_stack.append(t)
+
         elif t == "(":
             op_stack.append(t)
+
         elif t == ")":
             while op_stack and op_stack[-1] != "(":
                 output.append(op_stack.pop())
             if not op_stack:
                 raise ValueError("Paréntesis desbalanceados")
-            op_stack.pop()  # saca el "("
+            op_stack.pop()
+            if op_stack and op_stack[-1] in functions:
+                output.append(op_stack.pop())
+
         else:
             output.append(t)
 
@@ -54,18 +62,17 @@ def to_rpn(expr_tokens):
             raise ValueError("Paréntesis desbalanceados al final")
         output.append(top)
 
+    print(f"RPN generado: {output}")
     return output
 
-
-def is_literal(token: str) -> bool: # check para literal numerico
+def is_literal(token: str) -> bool:
     if not token:
         return False
     if token[0] in "+-":
         return token[1:].isdigit()
     return token.isdigit()
 
-
-def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
+def generate_asm_from_rpn(rpn):
     code = []
     temps = []
     stack = []
@@ -85,8 +92,10 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
         return f"L{label_id}"
 
     for token in rpn:
+        print(f"token: {token}, stack: {stack}")
         if token in {"+", "-", "*", "/", "%"}:
             if len(stack) < 2:
+                print(f"error:intentando procesar {token} pero stack solo tiene {len(stack)} elementos")
                 raise ValueError("faltan operandos")
             right = stack.pop()
             left = stack.pop()
@@ -97,19 +106,14 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
                     code.append(f"    MOV A,{left}")
                 else:
                     code.append(f"    MOV A,(v_{left})")
-
                 if is_literal(right):
                     code.append(f"    ADD A,{right}")
                 else:
                     code.append(f"    ADD A,(v_{right})")
-
                 lbl_ok = new_label()
                 lbl_err = new_label()
-
-               
                 code.append(f"    CMP A,127")
                 code.append(f"    JLE {lbl_ok}")
-        
                 code.append(f"{lbl_err}:")
                 code.append(f"    MOV A,1")
                 code.append(f"    MOV (v_error),A")
@@ -117,9 +121,7 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
                 code.append(f"    MOV (v_result),A")
                 code.append(f"    JMP end_program")
                 code.append(f"{lbl_ok}:")
-
                 code.append(f"    MOV (v_{temp}),A")
-
 
             elif token == "-":
                 temp_sign_left = new_temp()
@@ -128,57 +130,49 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
                 else:
                     code.append(f"    MOV A,(v_{left})")
                 code.append(f"    MOV (v_{temp_sign_left}),A")
-                
+
                 temp_sign_right = new_temp()
                 if is_literal(right):
                     code.append(f"    MOV A,{right}")
                 else:
                     code.append(f"    MOV A,(v_{right})")
                 code.append(f"    MOV (v_{temp_sign_right}),A")
-                
 
                 code.append(f"    MOV A,(v_{temp_sign_left})")
-                if is_literal(right):
-                    code.append(f"    SUB A,{right}")
-                else:
-                    code.append(f"    SUB A,(v_{temp_sign_right})")
-                
+                code.append(f"    SUB A,(v_{temp_sign_right})")
                 code.append(f"    MOV (v_{temp}),A")
-             
+
                 lbl_check_pos_neg = new_label()
                 lbl_check_neg_pos = new_label()
                 lbl_no_overflow = new_label()
                 lbl_overflow = new_label()
-                
+
                 code.append(f"    MOV A,(v_{temp_sign_left})")
                 code.append(f"    CMP A,128")
-                code.append(f"    JGE {lbl_check_neg_pos}")  # Si left es negativo, saltar
-                
+                code.append(f"    JGE {lbl_check_neg_pos}")
+
                 code.append(f"    MOV A,(v_{temp_sign_right})")
                 code.append(f"    CMP A,127")
-                code.append(f"    JLE {lbl_check_neg_pos}")  # Si right <= 127 (positivo), saltar
-                
-             
+                code.append(f"    JLE {lbl_check_neg_pos}")
+
                 code.append(f"    MOV A,(v_{temp})")
                 code.append(f"    CMP A,128")
-                code.append(f"    JGE {lbl_overflow}")  
+                code.append(f"    JGE {lbl_overflow}")
                 code.append(f"    JMP {lbl_no_overflow}")
-                
+
                 code.append(f"{lbl_check_neg_pos}:")
                 code.append(f"    MOV A,(v_{temp_sign_left})")
                 code.append(f"    CMP A,127")
-                code.append(f"    JLE {lbl_no_overflow}")  # Si left <= 127 (positivo), no hay overflow
-                
+                code.append(f"    JLE {lbl_no_overflow}")
+
                 code.append(f"    MOV A,(v_{temp_sign_right})")
                 code.append(f"    CMP A,128")
-                code.append(f"    JGE {lbl_no_overflow}")  # Si right >= 128 (negativo), no hay overflow
-                
+                code.append(f"    JGE {lbl_no_overflow}")
 
                 code.append(f"    MOV A,(v_{temp})")
                 code.append(f"    CMP A,127")
-                code.append(f"    JLE {lbl_overflow}") 
+                code.append(f"    JLE {lbl_overflow}")
                 code.append(f"    JMP {lbl_no_overflow}")
-                
 
                 code.append(f"{lbl_overflow}:")
                 code.append(f"    MOV A,1")
@@ -186,78 +180,67 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
                 code.append(f"    MOV A,0")
                 code.append(f"    MOV (v_result),A")
                 code.append(f"    JMP end_program")
-    
+
                 code.append(f"{lbl_no_overflow}:")
+                code.append(f"    MOV (v_{temp}),A")
 
             elif token == "*":
                 temp_result = new_temp()
                 temp_left = new_temp()
                 temp_right = new_temp()
-                temp_counter = new_temp()
-                
+                temp_negate = new_temp()
+
                 code.append(f"    MOV A,0")
                 code.append(f"    MOV (v_{temp_result}),A")
-                
-                # Guardar left
+
                 if is_literal(left):
                     code.append(f"    MOV A,{left}")
                 else:
                     code.append(f"    MOV A,(v_{left})")
                 code.append(f"    MOV (v_{temp_left}),A")
-                
+
                 if is_literal(right):
                     code.append(f"    MOV A,{right}")
                 else:
                     code.append(f"    MOV A,(v_{right})")
                 code.append(f"    MOV (v_{temp_right}),A")
-                
-                temp_negate = new_temp()
+
                 code.append(f"    MOV A,0")
-                code.append(f"    MOV (v_{temp_negate}),A")  
-                
+                code.append(f"    MOV (v_{temp_negate}),A")
+
                 lbl_right_positive = new_label()
                 code.append(f"    MOV A,(v_{temp_right})")
                 code.append(f"    CMP A,127")
-                code.append(f"    JLE {lbl_right_positive}")  # Si right <= 127 (positivo), continuar
-                
-                
+                code.append(f"    JLE {lbl_right_positive}")
                 code.append(f"    MOV A,1")
-                code.append(f"    MOV (v_{temp_negate}),A") 
+                code.append(f"    MOV (v_{temp_negate}),A")
                 code.append(f"    MOV A,0")
                 code.append(f"    SUB A,(v_{temp_right})")
                 code.append(f"    MOV (v_{temp_right}),A")
-                
                 code.append(f"{lbl_right_positive}:")
-                
-                # Loop de multiplicación
+
                 label_mul_loop = new_label()
                 label_mul_end = new_label()
-                
+
                 code.append(f"{label_mul_loop}:")
                 code.append(f"    MOV A,(v_{temp_right})")
                 code.append(f"    CMP A,0")
                 code.append(f"    JEQ {label_mul_end}")
-                
-                # Sumar left al resultado
+
                 code.append(f"    MOV A,(v_{temp_result})")
                 code.append(f"    ADD A,(v_{temp_left})")
                 code.append(f"    MOV (v_{temp_result}),A")
-                
-              
+
                 lbl_mul_no_overflow = new_label()
                 lbl_mul_overflow = new_label()
-                
 
                 code.append(f"    CMP A,127")
                 code.append(f"    JLE {lbl_mul_no_overflow}")
-                
                 code.append(f"    CMP A,128")
-                code.append(f"    JEQ {lbl_mul_no_overflow}")  # Si A == 128 (-128), está OK
-                
+                code.append(f"    JEQ {lbl_mul_no_overflow}")
                 code.append(f"    JMP {lbl_mul_overflow}")
-                
+
                 code.append(f"{lbl_mul_no_overflow}:")
-                
                 code.append(f"    MOV A,(v_{temp_right})")
                 code.append(f"    SUB A,1")
                 code.append(f"    MOV (v_{temp_right}),A")
@@ -269,155 +252,233 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
                 code.append(f"    MOV A,0")
                 code.append(f"    MOV (v_result),A")
                 code.append(f"    JMP end_program")
-                
+
                 code.append(f"{label_mul_end}:")
-                
 
                 lbl_no_negate = new_label()
                 code.append(f"    MOV A,(v_{temp_negate})")
                 code.append(f"    CMP A,0")
                 code.append(f"    JEQ {lbl_no_negate}")
-                
-
                 code.append(f"    MOV A,0")
                 code.append(f"    SUB A,(v_{temp_result})")
                 code.append(f"    MOV (v_{temp_result}),A")
-                
                 code.append(f"{lbl_no_negate}:")
                 code.append(f"    MOV A,(v_{temp_result})")
                 code.append(f"    MOV (v_{temp}),A")
 
-
-
             elif token == "/":
-                
-                temp = new_temp()
                 divisor_temp = new_temp()
                 dividend_temp = new_temp()
                 quotient_temp = new_temp()
-                
+
                 if is_literal(right):
                     code.append(f"    MOV A,{right}")
                 else:
                     code.append(f"    MOV A,(v_{right})")
                 code.append(f"    MOV (v_{divisor_temp}),A")
-                
+
                 label_div_ok = new_label()
                 label_div_end = new_label()
                 code.append(f"    CMP A,0")
-                code.append(f"    JEQ {label_div_end}")  # Si divisor == 0, marcar error
-                code.append(f"    JMP {label_div_ok}")   # Si no, continuar
-                
-                # Manejar división por cero
+                code.append(f"    JEQ {label_div_end}")
+                code.append(f"    JMP {label_div_ok}")
+
                 code.append(f"{label_div_end}:")
                 code.append(f"    MOV A,1")
                 code.append(f"    MOV (v_error),A")
                 code.append(f"    MOV A,0")
                 code.append(f"    MOV (v_result),A")
                 code.append(f"    JMP end_program")
-                
-                # Continuar con división normal
+
                 code.append(f"{label_div_ok}:")
-                
                 if is_literal(left):
                     code.append(f"    MOV A,{left}")
                 else:
                     code.append(f"    MOV A,(v_{left})")
                 code.append(f"    MOV (v_{dividend_temp}),A")
-                
+
                 code.append(f"    MOV A,0")
                 code.append(f"    MOV (v_{quotient_temp}),A")
-                
+
                 label_div_loop = new_label()
                 label_div_continue = new_label()
                 label_div_finish = new_label()
-                
+
                 code.append(f"{label_div_loop}:")
                 code.append(f"    MOV A,(v_{dividend_temp})")
                 code.append(f"    CMP A,(v_{divisor_temp})")
                 code.append(f"    JGE {label_div_continue}")
                 code.append(f"    JMP {label_div_finish}")
-                
+
                 code.append(f"{label_div_continue}:")
                 code.append(f"    MOV A,(v_{dividend_temp})")
                 code.append(f"    SUB A,(v_{divisor_temp})")
                 code.append(f"    MOV (v_{dividend_temp}),A")
-                
                 code.append(f"    MOV A,(v_{quotient_temp})")
                 code.append(f"    ADD A,1")
                 code.append(f"    MOV (v_{quotient_temp}),A")
-                
                 code.append(f"    JMP {label_div_loop}")
-                
+
                 code.append(f"{label_div_finish}:")
                 code.append(f"    MOV A,(v_{quotient_temp})")
                 code.append(f"    MOV (v_{temp}),A")
 
             elif token == "%":
-                temp = new_temp()
                 divisor_temp = new_temp()
                 dividend_temp = new_temp()
-                
+
                 if is_literal(right):
                     code.append(f"    MOV A,{right}")
                 else:
                     code.append(f"    MOV A,(v_{right})")
                 code.append(f"    MOV (v_{divisor_temp}),A")
-                
+
                 label_mod_ok = new_label()
                 label_mod_end = new_label()
                 code.append(f"    CMP A,0")
-                code.append(f"    JEQ {label_mod_end}")  # Si divisor == 0, marcar error
+                code.append(f"    JEQ {label_mod_end}")
                 code.append(f"    JMP {label_mod_ok}")
-                
+
                 code.append(f"{label_mod_end}:")
                 code.append(f"    MOV A,1")
                 code.append(f"    MOV (v_error),A")
                 code.append(f"    MOV A,0")
                 code.append(f"    MOV (v_result),A")
                 code.append(f"    JMP end_program")
-                
+
                 code.append(f"{label_mod_ok}:")
-                
                 if is_literal(left):
                     code.append(f"    MOV A,{left}")
                 else:
                     code.append(f"    MOV A,(v_{left})")
                 code.append(f"    MOV (v_{dividend_temp}),A")
-                
+
                 label_mod_loop = new_label()
                 label_mod_continue = new_label()
                 label_mod_finish = new_label()
-                
+
                 code.append(f"{label_mod_loop}:")
                 code.append(f"    MOV A,(v_{dividend_temp})")
                 code.append(f"    CMP A,(v_{divisor_temp})")
                 code.append(f"    JGE {label_mod_continue}")
                 code.append(f"    JMP {label_mod_finish}")
-                
-                code.append(f"{label_mod_continue}:")
 
+                code.append(f"{label_mod_continue}:")
                 code.append(f"    MOV A,(v_{dividend_temp})")
                 code.append(f"    SUB A,(v_{divisor_temp})")
                 code.append(f"    MOV (v_{dividend_temp}),A")
-                
-
                 code.append(f"    JMP {label_mod_loop}")
-                
 
                 code.append(f"{label_mod_finish}:")
                 code.append(f"    MOV A,(v_{dividend_temp})")
                 code.append(f"    MOV (v_{temp}),A")
-
             stack.append(temp)
+
+        elif token == "max":
+            right = stack.pop()
+            left = stack.pop()
+            temp = new_temp()
+            if is_literal(left):
+                code.append(f"    MOV A,{left}")
+            else:
+                code.append(f"    MOV A,(v_{left})")
+
+            lbl_left_greater = new_label()
+            lbl_end = new_label()
+
+            if is_literal(right):
+                code.append(f"    CMP A,{right}")
+            else:
+                code.append(f"    CMP A,(v_{right})")
+
+            code.append(f"    JGE {lbl_left_greater}")
+
+            if is_literal(right):
+                code.append(f"    MOV A,{right}")
+            else:
+                code.append(f"    MOV A,(v_{right})")
+            code.append(f"    JMP {lbl_end}")
+
+            code.append(f"{lbl_left_greater}:")
+            if is_literal(left):
+                code.append(f"    MOV A,{left}")
+            else:
+                code.append(f"    MOV A,(v_{left})")
+
+            code.append(f"{lbl_end}:")
+            code.append(f"    MOV (v_{temp}),A")
+            stack.append(temp)
+
+        elif token == "min":
+            right = stack.pop()
+            left = stack.pop()
+            temp = new_temp()
+
+            if is_literal(left):
+                code.append(f"    MOV A,{left}")
+            else:
+                code.append(f"    MOV A,(v_{left})")
+
+            lbl_left_smaller = new_label()
+            lbl_end = new_label()
+
+            if is_literal(right):
+                code.append(f"    CMP A,{right}")
+            else:
+                code.append(f"    CMP A,(v_{right})")
+
+            code.append(f"    JLE {lbl_left_smaller}")
+
+            if is_literal(right):
+                code.append(f"    MOV A,{right}")
+            else:
+                code.append(f"    MOV A,(v_{right})")
+            code.append(f"    JMP {lbl_end}")
+
+            code.append(f"{lbl_left_smaller}:")
+            if is_literal(left):
+                code.append(f"    MOV A,{left}")
+            else:
+                code.append(f"    MOV A,(v_{left})")
+
+            code.append(f"{lbl_end}:")
+            code.append(f"    MOV (v_{temp}),A")
+            stack.append(temp)
+
+        elif token == "abs":
+            operand = stack.pop()
+            temp = new_temp()
+
+            if is_literal(operand):
+                code.append(f"    MOV A,{operand}")
+            else:
+                code.append(f"    MOV A,(v_{operand})")
+
+            lbl_positive = new_label()
+            lbl_end = new_label()
+
+            code.append(f"    CMP A,127")
+            code.append(f"    JLE {lbl_positive}")
+
+            code.append(f"    MOV B,A")
+            code.append(f"    MOV A,0")
+            code.append(f"    SUB A,B")
+            code.append(f"    JMP {lbl_end}")
+
+            code.append(f"{lbl_positive}:")
+            code.append(f"{lbl_end}:")
+            code.append(f"    MOV (v_{temp}),A")
+            stack.append(temp)
+            
+
         else:
             stack.append(token)
+    # ← cerrar el for AQUÍ
 
     if len(stack) != 1:
         raise ValueError("sobran operandos")
 
     final = stack.pop()
-
     if is_literal(final):
         code.append(f"    MOV A,{final}")
     else:
@@ -427,7 +488,8 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
 
     return code, temps
 
-def compile_line(line: str, var_values=None): #compila una linea
+
+def compile_line(line: str, var_values=None):
     if var_values is None:
         var_values = {}
 
@@ -443,7 +505,6 @@ def compile_line(line: str, var_values=None): #compila una linea
         raise ValueError("Solo se soporta 'result' en el lado izquierdo")
 
     rpn = to_rpn(rhs)
-
     code, temps = generate_asm_from_rpn(rpn)
 
     data_lines = []
@@ -504,7 +565,6 @@ def main():
         f.write(f"; Accesos a memoria (aprox): {mem_accesses}\n")
 
     print("\nguardado en program.asm")
-
 
 if __name__ == "__main__":
     main()
