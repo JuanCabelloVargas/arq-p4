@@ -103,63 +103,190 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
                 else:
                     code.append(f"    ADD A,(v_{right})")
 
+                lbl_ok = new_label()
+                lbl_err = new_label()
+
+               
+                code.append(f"    CMP A,127")
+                code.append(f"    JLE {lbl_ok}")
+        
+                code.append(f"{lbl_err}:")
+                code.append(f"    MOV A,1")
+                code.append(f"    MOV (v_error),A")
+                code.append(f"    MOV A,0")
+                code.append(f"    MOV (v_result),A")
+                code.append(f"    JMP end_program")
+                code.append(f"{lbl_ok}:")
+
                 code.append(f"    MOV (v_{temp}),A")
 
+
             elif token == "-":
+                temp_sign_left = new_temp()
                 if is_literal(left):
                     code.append(f"    MOV A,{left}")
                 else:
                     code.append(f"    MOV A,(v_{left})")
+                code.append(f"    MOV (v_{temp_sign_left}),A")
+                
+                temp_sign_right = new_temp()
+                if is_literal(right):
+                    code.append(f"    MOV A,{right}")
+                else:
+                    code.append(f"    MOV A,(v_{right})")
+                code.append(f"    MOV (v_{temp_sign_right}),A")
+                
 
+                code.append(f"    MOV A,(v_{temp_sign_left})")
                 if is_literal(right):
                     code.append(f"    SUB A,{right}")
                 else:
-                    code.append(f"    SUB A,(v_{right})")
-
+                    code.append(f"    SUB A,(v_{temp_sign_right})")
+                
                 code.append(f"    MOV (v_{temp}),A")
+             
+                lbl_check_pos_neg = new_label()
+                lbl_check_neg_pos = new_label()
+                lbl_no_overflow = new_label()
+                lbl_overflow = new_label()
+                
+                code.append(f"    MOV A,(v_{temp_sign_left})")
+                code.append(f"    CMP A,128")
+                code.append(f"    JGE {lbl_check_neg_pos}")  # Si left es negativo, saltar
+                
+                code.append(f"    MOV A,(v_{temp_sign_right})")
+                code.append(f"    CMP A,127")
+                code.append(f"    JLE {lbl_check_neg_pos}")  # Si right <= 127 (positivo), saltar
+                
+             
+                code.append(f"    MOV A,(v_{temp})")
+                code.append(f"    CMP A,128")
+                code.append(f"    JGE {lbl_overflow}")  
+                code.append(f"    JMP {lbl_no_overflow}")
+                
+                code.append(f"{lbl_check_neg_pos}:")
+                code.append(f"    MOV A,(v_{temp_sign_left})")
+                code.append(f"    CMP A,127")
+                code.append(f"    JLE {lbl_no_overflow}")  # Si left <= 127 (positivo), no hay overflow
+                
+                code.append(f"    MOV A,(v_{temp_sign_right})")
+                code.append(f"    CMP A,128")
+                code.append(f"    JGE {lbl_no_overflow}")  # Si right >= 128 (negativo), no hay overflow
+                
+
+                code.append(f"    MOV A,(v_{temp})")
+                code.append(f"    CMP A,127")
+                code.append(f"    JLE {lbl_overflow}") 
+                code.append(f"    JMP {lbl_no_overflow}")
+                
+
+                code.append(f"{lbl_overflow}:")
+                code.append(f"    MOV A,1")
+                code.append(f"    MOV (v_error),A")
+                code.append(f"    MOV A,0")
+                code.append(f"    MOV (v_result),A")
+                code.append(f"    JMP end_program")
+    
+                code.append(f"{lbl_no_overflow}:")
 
             elif token == "*":
                 temp_result = new_temp()
                 temp_left = new_temp()
                 temp_right = new_temp()
-
+                temp_counter = new_temp()
+                
                 code.append(f"    MOV A,0")
                 code.append(f"    MOV (v_{temp_result}),A")
-
+                
+                # Guardar left
                 if is_literal(left):
                     code.append(f"    MOV A,{left}")
                 else:
                     code.append(f"    MOV A,(v_{left})")
                 code.append(f"    MOV (v_{temp_left}),A")
-
+                
                 if is_literal(right):
                     code.append(f"    MOV A,{right}")
                 else:
                     code.append(f"    MOV A,(v_{right})")
                 code.append(f"    MOV (v_{temp_right}),A")
-
+                
+                temp_negate = new_temp()
+                code.append(f"    MOV A,0")
+                code.append(f"    MOV (v_{temp_negate}),A")  
+                
+                lbl_right_positive = new_label()
+                code.append(f"    MOV A,(v_{temp_right})")
+                code.append(f"    CMP A,127")
+                code.append(f"    JLE {lbl_right_positive}")  # Si right <= 127 (positivo), continuar
+                
+                
+                code.append(f"    MOV A,1")
+                code.append(f"    MOV (v_{temp_negate}),A") 
+                code.append(f"    MOV A,0")
+                code.append(f"    SUB A,(v_{temp_right})")
+                code.append(f"    MOV (v_{temp_right}),A")
+                
+                code.append(f"{lbl_right_positive}:")
+                
+                # Loop de multiplicación
                 label_mul_loop = new_label()
                 label_mul_end = new_label()
-
+                
                 code.append(f"{label_mul_loop}:")
                 code.append(f"    MOV A,(v_{temp_right})")
                 code.append(f"    CMP A,0")
                 code.append(f"    JEQ {label_mul_end}")
-
+                
+                # Sumar left al resultado
                 code.append(f"    MOV A,(v_{temp_result})")
                 code.append(f"    ADD A,(v_{temp_left})")
                 code.append(f"    MOV (v_{temp_result}),A")
+                
+              
+                lbl_mul_no_overflow = new_label()
+                lbl_mul_overflow = new_label()
+                
 
+                code.append(f"    CMP A,127")
+                code.append(f"    JLE {lbl_mul_no_overflow}")
+                
+                code.append(f"    CMP A,128")
+                code.append(f"    JEQ {lbl_mul_no_overflow}")  # Si A == 128 (-128), está OK
+                
+                code.append(f"    JMP {lbl_mul_overflow}")
+                
+                code.append(f"{lbl_mul_no_overflow}:")
+                
                 code.append(f"    MOV A,(v_{temp_right})")
                 code.append(f"    SUB A,1")
                 code.append(f"    MOV (v_{temp_right}),A")
-
                 code.append(f"    JMP {label_mul_loop}")
 
-                # Fin del loop
+                code.append(f"{lbl_mul_overflow}:")
+                code.append(f"    MOV A,1")
+                code.append(f"    MOV (v_error),A")
+                code.append(f"    MOV A,0")
+                code.append(f"    MOV (v_result),A")
+                code.append(f"    JMP end_program")
+                
                 code.append(f"{label_mul_end}:")
+                
+
+                lbl_no_negate = new_label()
+                code.append(f"    MOV A,(v_{temp_negate})")
+                code.append(f"    CMP A,0")
+                code.append(f"    JEQ {lbl_no_negate}")
+                
+
+                code.append(f"    MOV A,0")
+                code.append(f"    SUB A,(v_{temp_result})")
+                code.append(f"    MOV (v_{temp_result}),A")
+                
+                code.append(f"{lbl_no_negate}:")
                 code.append(f"    MOV A,(v_{temp_result})")
                 code.append(f"    MOV (v_{temp}),A")
+
 
 
             elif token == "/":
