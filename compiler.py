@@ -227,7 +227,59 @@ def generate_asm_from_rpn(rpn): #lo generado en rpn lo pasamos a codigo asua
                 code.append(f"    MOV (v_{temp}),A")
 
             elif token == "%":
-                code.append(f"    ; Módulo {left} % {right}")
+                temp = new_temp()
+                divisor_temp = new_temp()
+                dividend_temp = new_temp()
+                
+                if is_literal(right):
+                    code.append(f"    MOV A,{right}")
+                else:
+                    code.append(f"    MOV A,(v_{right})")
+                code.append(f"    MOV (v_{divisor_temp}),A")
+                
+                label_mod_ok = new_label()
+                label_mod_end = new_label()
+                code.append(f"    CMP A,0")
+                code.append(f"    JEQ {label_mod_end}")  # Si divisor == 0, marcar error
+                code.append(f"    JMP {label_mod_ok}")
+                
+                code.append(f"{label_mod_end}:")
+                code.append(f"    MOV A,1")
+                code.append(f"    MOV (v_error),A")
+                code.append(f"    MOV A,0")
+                code.append(f"    MOV (v_result),A")
+                code.append(f"    JMP end_program")
+                
+                code.append(f"{label_mod_ok}:")
+                
+                if is_literal(left):
+                    code.append(f"    MOV A,{left}")
+                else:
+                    code.append(f"    MOV A,(v_{left})")
+                code.append(f"    MOV (v_{dividend_temp}),A")
+                
+                label_mod_loop = new_label()
+                label_mod_continue = new_label()
+                label_mod_finish = new_label()
+                
+                code.append(f"{label_mod_loop}:")
+                code.append(f"    MOV A,(v_{dividend_temp})")
+                code.append(f"    CMP A,(v_{divisor_temp})")
+                code.append(f"    JGE {label_mod_continue}")
+                code.append(f"    JMP {label_mod_finish}")
+                
+                code.append(f"{label_mod_continue}:")
+
+                code.append(f"    MOV A,(v_{dividend_temp})")
+                code.append(f"    SUB A,(v_{divisor_temp})")
+                code.append(f"    MOV (v_{dividend_temp}),A")
+                
+
+                code.append(f"    JMP {label_mod_loop}")
+                
+
+                code.append(f"{label_mod_finish}:")
+                code.append(f"    MOV A,(v_{dividend_temp})")
                 code.append(f"    MOV (v_{temp}),A")
 
             stack.append(temp)
